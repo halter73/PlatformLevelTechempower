@@ -1,11 +1,10 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Net;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Hosting.Internal;
 using Microsoft.AspNetCore.Server.Kestrel.Transport.Abstractions.Internal;
 using Microsoft.AspNetCore.Server.Kestrel.Transport.Libuv;
+using Microsoft.AspNetCore.Server.Kestrel.Transport.Sockets;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -69,8 +68,9 @@ namespace PlatformLevelTechempower
             }
             if (parsedArgs.Transport == Transport.Sockets)
             {
-                // TODO: Add the sockets transport
+                Console.WriteLine($"Using {nameof(Transport.Sockets)} transport.");
 
+                return new SocketTransportFactory(Options.Create(new SocketTransportOptions()), NullLoggerFactory.Instance);
             }
 
             return null;

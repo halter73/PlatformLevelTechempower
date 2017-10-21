@@ -1,9 +1,10 @@
 ﻿using System;
+using System.IO.Pipelines;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Hosting.Internal;
+using Microsoft.AspNetCore.Http.Features;
+using Microsoft.AspNetCore.Protocols.Features;
 using Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http;
-using Microsoft.AspNetCore.Server.Kestrel.Internal.System;
-using Microsoft.AspNetCore.Server.Kestrel.Internal.System.IO.Pipelines;
 using Microsoft.AspNetCore.Server.Kestrel.Transport.Abstractions.Internal;
 using Utf8Json;
 
@@ -35,21 +36,26 @@ namespace PlatformLevelTechempower
             await transport.StopAsync();
         }
 
-        public IConnectionContext OnConnection(IConnectionInformation connectionInfo)
+        public void OnConnection(IFeatureCollection features)
         {
-            var inputOptions = new PipeOptions { WriterScheduler = connectionInfo.InputWriterScheduler };
-            var outputOptions = new PipeOptions { ReaderScheduler = connectionInfo.OutputReaderScheduler };
+            var transportFeature = features.Get<IConnectionTransportFeature>();
+            var connectionIdFeature = features.Get<IConnectionIdFeature>();
 
-            var context = new HttpConnectionContext
+            var inputOptions = new PipeOptions { WriterScheduler = transportFeature.InputWriterScheduler };
+            var outputOptions = new PipeOptions { ReaderScheduler = transportFeature.OutputReaderScheduler };
+            var pair = transportFeature.PipeFactory.CreateConnectionPair(inputOptions, outputOptions);
+
+            connectionIdFeature.ConnectionId = Guid.NewGuid().ToString();
+            transportFeature.Transport = pair.Transport;
+            transportFeature.Application = pair.Application;
+
+            var httpContext = new HttpConnectionContext
             {
-                ConnectionId = Guid.NewGuid().ToString(),
-                Input = connectionInfo.PipeFactory.Create(inputOptions),
-                Output = connectionInfo.PipeFactory.Create(outputOptions),
+                Input = pair.Transport.Input,
+                Output = pair.Transport.Output
             };
 
-            _ = context.ExecuteAsync();
-
-            return context;
+            _ = httpContext.ExecuteAsync();
         }
 
         private static class Paths
@@ -58,7 +64,7 @@ namespace PlatformLevelTechempower
             public static AsciiString Json = "/json";
         }
 
-        private class HttpConnectionContext : IConnectionContext, IHttpHeadersHandler, IHttpRequestLineHandler
+        private class HttpConnectionContext : IHttpHeadersHandler, IHttpRequestLineHandler
         {
             private State _state;
 
@@ -69,27 +75,11 @@ namespace PlatformLevelTechempower
             private byte[] _pathBuffer = new byte[256];
             private int _pathLength;
 
-            public string ConnectionId { get; set; }
+            public IPipeReader Input { get; set; }
 
-            public IPipe Input { get; set; }
+            public IPipeWriter Output { get; set; }
 
-            public IPipe Output { get; set; }
-
-            IPipeWriter IConnectionContext.Input => Input.Writer;
-
-            IPipeReader IConnectionContext.Output => Output.Reader;
-
-            private FrameResponseHeaders ResponseHeaders = new FrameResponseHeaders();
-
-            public void Abort(Exception ex)
-            {
-
-            }
-
-            public void OnConnectionClosed(Exception ex)
-            {
-
-            }
+            private HttpResponseHeaders ResponseHeaders = new HttpResponseHeaders();
 
             public async Task ExecuteAsync()
             {
@@ -97,7 +87,7 @@ namespace PlatformLevelTechempower
                 {
                     while (true)
                     {
-                        var result = await Input.Reader.ReadAsync();
+                        var result = await Input.ReadAsync();
                         var inputBuffer = result.Buffer;
                         var consumed = inputBuffer.Start;
                         var examined = inputBuffer.End;
@@ -119,7 +109,7 @@ namespace PlatformLevelTechempower
 
                             if (_state == State.Body)
                             {
-                                var outputBuffer = Output.Writer.Alloc();
+                                var outputBuffer = Output.Alloc();
 
                                 if (_method == HttpMethod.Get)
                                 {
@@ -140,19 +130,19 @@ namespace PlatformLevelTechempower
                         }
                         finally
                         {
-                            Input.Reader.Advance(consumed, examined);
+                            Input.Advance(consumed, examined);
                         }
                     }
 
-                    Input.Reader.Complete();
+                    Input.Complete();
                 }
                 catch (Exception ex)
                 {
-                    Input.Reader.Complete(ex);
+                    Input.Complete(ex);
                 }
                 finally
                 {
-                    Output.Writer.Complete();
+                    Output.Complete();
                 }
             }
 
