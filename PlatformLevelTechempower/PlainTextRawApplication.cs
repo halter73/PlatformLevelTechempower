@@ -6,6 +6,8 @@ using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Protocols.Features;
 using Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http;
 using Microsoft.AspNetCore.Server.Kestrel.Transport.Abstractions.Internal;
+using Microsoft.AspNetCore.Server.Kestrel.Transport.Libuv;
+using Microsoft.AspNetCore.Server.Kestrel.Transport.Sockets;
 using Utf8Json;
 
 namespace PlatformLevelTechempower
@@ -28,7 +30,11 @@ namespace PlatformLevelTechempower
 
         public async Task RunAsync(ITransportFactory transportFactory, IEndPointInformation endPointInformation, ApplicationLifetime lifetime)
         {
-            Console.CancelKeyPress += (sender, e) => lifetime.StopApplication();
+            Console.CancelKeyPress += (sender, e) =>
+            {
+                lifetime.StopApplication();
+                lifetime.ApplicationStopped.WaitHandle.WaitOne();
+            };
 
             var transport = transportFactory.Create(endPointInformation, this);
 
@@ -40,6 +46,20 @@ namespace PlatformLevelTechempower
 
             await transport.UnbindAsync();
             await transport.StopAsync();
+
+            switch (transportFactory)
+            {
+                case LibuvTransportFactory _:
+                    Console.WriteLine("ReadCount: {0}, WriteCount: {1}", LibuvTransportFactory.ReadCount, LibuvTransportFactory.WriteCount);
+                    break;
+                case SocketTransportFactory _:
+                    Console.WriteLine("ReadCount: {0}, WriteCount: {1}", SocketTransportFactory.ReadCount, SocketTransportFactory.WriteCount);
+                    break;
+            }
+
+            Console.WriteLine("RequestCount: {0}, ParseRequestLineCount: {1}, ParseHeadersCount: {2}", HttpParser<HttpConnectionContext>.RequestCount, HttpParser<HttpConnectionContext>.ParseRequestLineCount, HttpParser<HttpConnectionContext>.ParseHeadersCount);
+
+            lifetime.NotifyStopped();
         }
 
         public void OnConnection(IFeatureCollection features)
