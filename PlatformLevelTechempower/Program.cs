@@ -70,7 +70,7 @@ namespace PlatformLevelTechempower
             {
                 Console.WriteLine($"Using {nameof(Transport.Sockets)} transport.");
 
-                return new SocketTransportFactory(Options.Create(new SocketTransportOptions()), NullLoggerFactory.Instance);
+                return new SocketTransportFactory(Options.Create(new SocketTransportOptions()), lifetime, NullLoggerFactory.Instance);
             }
 
             return null;

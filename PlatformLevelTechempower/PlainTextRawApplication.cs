@@ -28,7 +28,11 @@ namespace PlatformLevelTechempower
 
         public async Task RunAsync(ITransportFactory transportFactory, IEndPointInformation endPointInformation, ApplicationLifetime lifetime)
         {
-            Console.CancelKeyPress += (sender, e) => lifetime.StopApplication();
+            Console.CancelKeyPress += (sender, e) =>
+            {
+                lifetime.StopApplication();
+                lifetime.ApplicationStopped.WaitHandle.WaitOne();
+            };
 
             var transport = transportFactory.Create(endPointInformation, this);
 
@@ -40,6 +44,8 @@ namespace PlatformLevelTechempower
 
             await transport.UnbindAsync();
             await transport.StopAsync();
+
+            lifetime.NotifyStopped();
         }
 
         public void OnConnection(IFeatureCollection features)
