@@ -39,9 +39,9 @@ namespace PlatformLevelTechempower
             var transportFeature = features.Get<IConnectionTransportFeature>();
             var connectionIdFeature = features.Get<IConnectionIdFeature>();
 
-            var inputOptions = new PipeOptions { WriterScheduler = transportFeature.InputWriterScheduler };
-            var outputOptions = new PipeOptions { ReaderScheduler = transportFeature.OutputReaderScheduler };
-            var pair = transportFeature.PipeFactory.CreateConnectionPair(inputOptions, outputOptions);
+            var inputOptions = new PipeOptions(transportFeature.BufferPool, readerScheduler: null, writerScheduler: transportFeature.InputWriterScheduler);
+            var outputOptions = new PipeOptions(transportFeature.BufferPool, readerScheduler: transportFeature.OutputReaderScheduler);
+            var pair = PipeFactory.CreateConnectionPair(inputOptions, outputOptions);
 
             connectionIdFeature.ConnectionId = Guid.NewGuid().ToString();
             transportFeature.Transport = pair.Transport;
@@ -322,7 +322,7 @@ namespace PlatformLevelTechempower
         {
             Output.Write(name);
             var output = new WritableBufferWriter(Output);
-            PipelineExtensions.WriteNumeric(ref output, value);
+            Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http.PipelineExtensions.WriteNumeric(ref output, value);
             Output.Write(_crlf);
         }
 

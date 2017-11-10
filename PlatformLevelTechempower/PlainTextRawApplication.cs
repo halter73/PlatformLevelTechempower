@@ -28,7 +28,11 @@ namespace PlatformLevelTechempower
 
         public async Task RunAsync(ITransportFactory transportFactory, IEndPointInformation endPointInformation, ApplicationLifetime lifetime)
         {
-            Console.CancelKeyPress += (sender, e) => lifetime.StopApplication();
+            Console.CancelKeyPress += (sender, e) =>
+            {
+                lifetime.StopApplication();
+                lifetime.ApplicationStopped.WaitHandle.WaitOne();
+            };
 
             var transport = transportFactory.Create(endPointInformation, this);
 
@@ -40,6 +44,20 @@ namespace PlatformLevelTechempower
 
             await transport.UnbindAsync();
             await transport.StopAsync();
+
+            //switch (transportFactory)
+            //{
+            //    case LibuvTransportFactory _:
+            //        Console.WriteLine("ReadCount: {0}, WriteCount: {1}", LibuvTransportFactory.ReadCount, LibuvTransportFactory.WriteCount);
+            //        break;
+            //    case SocketTransportFactory _:
+            //        Console.WriteLine("ReadCount: {0}, WriteCount: {1}", SocketTransportFactory.ReadCount, SocketTransportFactory.WriteCount);
+            //        break;
+            //}
+
+            //Console.WriteLine("RequestCount: {0}, ParseRequestLineCount: {1}, ParseHeadersCount: {2}", HttpParser<HttpConnectionContext>.RequestCount, HttpParser<HttpConnectionContext>.ParseRequestLineCount, HttpParser<HttpConnectionContext>.ParseHeadersCount);
+
+            lifetime.NotifyStopped();
         }
 
         public void OnConnection(IFeatureCollection features)
@@ -47,9 +65,9 @@ namespace PlatformLevelTechempower
             var transportFeature = features.Get<IConnectionTransportFeature>();
             var connectionIdFeature = features.Get<IConnectionIdFeature>();
 
-            var inputOptions = new PipeOptions { WriterScheduler = transportFeature.InputWriterScheduler };
-            var outputOptions = new PipeOptions { ReaderScheduler = transportFeature.OutputReaderScheduler };
-            var pair = transportFeature.PipeFactory.CreateConnectionPair(inputOptions, outputOptions);
+            var inputOptions = new PipeOptions(transportFeature.BufferPool, readerScheduler: null, writerScheduler: transportFeature.InputWriterScheduler);
+            var outputOptions = new PipeOptions(transportFeature.BufferPool, readerScheduler: transportFeature.OutputReaderScheduler);
+            var pair = PipeFactory.CreateConnectionPair(inputOptions, outputOptions);
 
             connectionIdFeature.ConnectionId = Guid.NewGuid().ToString();
             transportFeature.Transport = pair.Transport;
@@ -220,7 +238,7 @@ namespace PlatformLevelTechempower
 
                 // Content-Length header
                 writer.Write(_headerContentLength);
-                PipelineExtensions.WriteNumeric(ref writer, (ulong)jsonPayload.Count);
+                Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http.PipelineExtensions.WriteNumeric(ref writer, (ulong)jsonPayload.Count);
                 writer.Write(_crlf);
 
                 // End of headers
@@ -249,7 +267,7 @@ namespace PlatformLevelTechempower
 
                 // Content-Length header
                 writer.Write(_headerContentLength);
-                PipelineExtensions.WriteNumeric(ref writer, (ulong)_plainTextBody.Length);
+                Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http.PipelineExtensions.WriteNumeric(ref writer, (ulong)_plainTextBody.Length);
                 writer.Write(_crlf);
 
                 // End of headers
