@@ -39,8 +39,8 @@ namespace PlatformLevelTechempower
             var transportFeature = features.Get<IConnectionTransportFeature>();
             var connectionIdFeature = features.Get<IConnectionIdFeature>();
 
-            var inputOptions = new PipeOptions(transportFeature.BufferPool, readerScheduler: null, writerScheduler: transportFeature.InputWriterScheduler);
-            var outputOptions = new PipeOptions(transportFeature.BufferPool, readerScheduler: transportFeature.OutputReaderScheduler);
+            var inputOptions = new PipeOptions(transportFeature.MemoryPool, readerScheduler: null, writerScheduler: transportFeature.InputWriterScheduler);
+            var outputOptions = new PipeOptions(transportFeature.MemoryPool, readerScheduler: transportFeature.OutputReaderScheduler);
             var pair = PipeFactory.CreateConnectionPair(inputOptions, outputOptions);
 
             connectionIdFeature.ConnectionId = Guid.NewGuid().ToString();
