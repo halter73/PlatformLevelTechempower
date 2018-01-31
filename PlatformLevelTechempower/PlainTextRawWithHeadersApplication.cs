@@ -1,4 +1,7 @@
 ﻿using System;
+using System.Buffers;
+using System.Collections;
+using System.Collections.Sequences;
 using System.IO.Pipelines;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Hosting.Internal;
@@ -75,9 +78,9 @@ namespace PlatformLevelTechempower
             private byte[] _pathBuffer = new byte[256];
             private int _pathLength;
 
-            public IPipeReader Input { get; set; }
+            public PipeReader Input { get; set; }
 
-            public IPipeWriter Output { get; set; }
+            public PipeWriter Output { get; set; }
 
             private HttpResponseHeaders ResponseHeaders = new HttpResponseHeaders();
 
@@ -109,15 +112,15 @@ namespace PlatformLevelTechempower
 
                             if (_state == State.Body)
                             {
-                                var outputBuffer = Output.Alloc();
+                                var outputBuffer = Output;
 
                                 if (_method == HttpMethod.Get)
                                 {
-                                    HandleRequest(ref outputBuffer);
+                                    HandleRequest(outputBuffer);
                                 }
                                 else
                                 {
-                                    Default(ref outputBuffer);
+                                    Default(outputBuffer);
                                 }
 
                                 await outputBuffer.FlushAsync();
@@ -130,7 +133,7 @@ namespace PlatformLevelTechempower
                         }
                         finally
                         {
-                            Input.Advance(consumed, examined);
+                            Input.AdvanceTo(consumed, examined);
                         }
                     }
 
@@ -146,7 +149,7 @@ namespace PlatformLevelTechempower
                 }
             }
 
-            private void HandleRequest(ref WritableBuffer outputBuffer)
+            private void HandleRequest(PipeWriter outputBuffer)
             {
                 Span<byte> path;
 
@@ -161,21 +164,21 @@ namespace PlatformLevelTechempower
 
                 if (path.StartsWith(Paths.Plaintext))
                 {
-                    PlainText(ref outputBuffer);
+                    PlainText(outputBuffer);
                 }
                 else if (path.StartsWith(Paths.Json))
                 {
-                    Json(ref outputBuffer);
+                    Json(outputBuffer);
                 }
                 else
                 {
-                    Default(ref outputBuffer);
+                    Default(outputBuffer);
                 }
             }
 
-            private void Default(ref WritableBuffer outputBuffer)
+            private void Default(PipeWriter outputBuffer)
             {
-                var writer = new WritableBufferWriter(outputBuffer);
+                var writer = OutputWriter.Create(outputBuffer);
 
                 // HTTP 1.1 OK
                 writer.Write(_bytesHttpVersion11);
@@ -192,9 +195,9 @@ namespace PlatformLevelTechempower
                 writer.Write(_bytesEndHeaders);
             }
 
-            private void Json(ref WritableBuffer outputBuffer)
+            private void Json(PipeWriter outputBuffer)
             {
-                var writer = new WritableBufferWriter(outputBuffer);
+                var writer = OutputWriter.Create(outputBuffer);
 
                 // HTTP 1.1 OK
                 writer.Write(_bytesHttpVersion11);
@@ -213,12 +216,12 @@ namespace PlatformLevelTechempower
                 writer.Write(_bytesEndHeaders);
 
                 // Body
-                writer.Write(jsonPayload.Array, jsonPayload.Offset, jsonPayload.Count);
+                writer.Write(new Span<byte>(jsonPayload.Array, jsonPayload.Offset, jsonPayload.Count));
             }
 
-            private void PlainText(ref WritableBuffer outputBuffer)
+            private void PlainText(PipeWriter outputBuffer)
             {
-                var writer = new WritableBufferWriter(outputBuffer);
+                var writer = OutputWriter.Create(outputBuffer);
 
                 // HTTP 1.1 OK
                 writer.Write(_bytesHttpVersion11);
@@ -239,7 +242,7 @@ namespace PlatformLevelTechempower
                 writer.Write(_plainTextBody);
             }
 
-            private void ParseHttpRequest(ReadableBuffer inputBuffer, out ReadCursor consumed, out ReadCursor examined)
+            private void ParseHttpRequest(ReadOnlyBuffer<byte> inputBuffer, out SequencePosition consumed, out SequencePosition examined)
             {
                 consumed = inputBuffer.Start;
                 examined = inputBuffer.End;

@@ -2,7 +2,7 @@
   <PropertyGroup>
     <TargetFramework>netcoreapp2.1</TargetFramework>
     <LangVersion>latest</LangVersion>
-    <RuntimeFrameworkVersion>2.1.0-preview1-26016-05</RuntimeFrameworkVersion>
+    <RuntimeFrameworkVersion>2.1.0-preview2-26130-04</RuntimeFrameworkVersion>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\..\aspnet\KestrelHttpServer\src\Kestrel\Kestrel.csproj" />

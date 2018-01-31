@@ -1,11 +1,17 @@
 ﻿using System;
+using System.Buffers;
+using System.Collections;
+using System.Collections.Sequences;
 using System.IO.Pipelines;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Hosting.Internal;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Protocols.Features;
 using Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http;
 using Microsoft.AspNetCore.Server.Kestrel.Transport.Abstractions.Internal;
+using Microsoft.AspNetCore.Server.Kestrel.Transport.Libuv;
+using Microsoft.AspNetCore.Server.Kestrel.Transport.Sockets;
 using Utf8Json;
 
 namespace PlatformLevelTechempower
@@ -26,6 +32,8 @@ namespace PlatformLevelTechempower
 
         private static AsciiString _plainTextBody = "Hello, World!";
 
+        private PipeScheduler _appScheduler;
+
         public async Task RunAsync(ITransportFactory transportFactory, IEndPointInformation endPointInformation, ApplicationLifetime lifetime)
         {
             Console.CancelKeyPress += (sender, e) =>
@@ -45,15 +53,17 @@ namespace PlatformLevelTechempower
             await transport.UnbindAsync();
             await transport.StopAsync();
 
-            //switch (transportFactory)
-            //{
-            //    case LibuvTransportFactory _:
-            //        Console.WriteLine("ReadCount: {0}, WriteCount: {1}", LibuvTransportFactory.ReadCount, LibuvTransportFactory.WriteCount);
-            //        break;
-            //    case SocketTransportFactory _:
-            //        Console.WriteLine("ReadCount: {0}, WriteCount: {1}", SocketTransportFactory.ReadCount, SocketTransportFactory.WriteCount);
-            //        break;
-            //}
+            switch (transportFactory)
+            {
+                case LibuvTransportFactory _:
+                    //Console.WriteLine("ReadCount: {0}, WriteCount: {1}", LibuvTransportFactory.ReadCount, LibuvTransportFactory.WriteCount);
+                    _appScheduler = PipeScheduler.ThreadPool;
+                    break;
+                case SocketTransportFactory _:
+                    //Console.WriteLine("ReadCount: {0}, WriteCount: {1}", SocketTransportFactory.ReadCount, SocketTransportFactory.WriteCount);
+                    _appScheduler = PipeScheduler.Inline;
+                    break;
+            }
 
             //Console.WriteLine("RequestCount: {0}, ParseRequestLineCount: {1}, ParseHeadersCount: {2}", HttpParser<HttpConnectionContext>.RequestCount, HttpParser<HttpConnectionContext>.ParseRequestLineCount, HttpParser<HttpConnectionContext>.ParseHeadersCount);
 
@@ -65,8 +75,8 @@ namespace PlatformLevelTechempower
             var transportFeature = features.Get<IConnectionTransportFeature>();
             var connectionIdFeature = features.Get<IConnectionIdFeature>();
 
-            var inputOptions = new PipeOptions(transportFeature.MemoryPool, readerScheduler: null, writerScheduler: transportFeature.InputWriterScheduler);
-            var outputOptions = new PipeOptions(transportFeature.MemoryPool, readerScheduler: transportFeature.OutputReaderScheduler);
+            var inputOptions = new PipeOptions(transportFeature.MemoryPool, readerScheduler: _appScheduler, writerScheduler: transportFeature.InputWriterScheduler);
+            var outputOptions = new PipeOptions(transportFeature.MemoryPool, readerScheduler: transportFeature.OutputReaderScheduler, writerScheduler: _appScheduler);
             var pair = PipeFactory.CreateConnectionPair(inputOptions, outputOptions);
 
             connectionIdFeature.ConnectionId = Guid.NewGuid().ToString();
@@ -99,9 +109,9 @@ namespace PlatformLevelTechempower
             private byte[] _pathBuffer = new byte[256];
             private int _pathLength;
 
-            public IPipeReader Input { get; set; }
+            public PipeReader Input { get; set; }
 
-            public IPipeWriter Output { get; set; }
+            public PipeWriter Output { get; set; }
 
             public async Task ExecuteAsync()
             {
@@ -131,15 +141,15 @@ namespace PlatformLevelTechempower
 
                             if (_state == State.Body)
                             {
-                                var outputBuffer = Output.Alloc();
+                                var outputBuffer = Output;
 
                                 if (_method == HttpMethod.Get)
                                 {
-                                    HandleRequest(ref outputBuffer);
+                                    HandleRequest(outputBuffer);
                                 }
                                 else
                                 {
-                                    Default(ref outputBuffer);
+                                    Default(outputBuffer);
                                 }
 
                                 await outputBuffer.FlushAsync();
@@ -151,7 +161,7 @@ namespace PlatformLevelTechempower
                         }
                         finally
                         {
-                            Input.Advance(consumed, examined);
+                            Input.AdvanceTo(consumed, examined);
                         }
                     }
 
@@ -167,7 +177,7 @@ namespace PlatformLevelTechempower
                 }
             }
 
-            private void HandleRequest(ref WritableBuffer outputBuffer)
+            private void HandleRequest(PipeWriter outputBuffer)
             {
                 Span<byte> path;
 
@@ -182,21 +192,21 @@ namespace PlatformLevelTechempower
 
                 if (path.StartsWith(Paths.Plaintext))
                 {
-                    PlainText(ref outputBuffer);
+                    PlainText(outputBuffer);
                 }
                 else if (path.StartsWith(Paths.Json))
                 {
-                    Json(ref outputBuffer);
+                    Json(outputBuffer);
                 }
                 else
                 {
-                    Default(ref outputBuffer);
+                    Default(outputBuffer);
                 }
             }
 
-            private static void Default(ref WritableBuffer outputBuffer)
+            private static void Default(PipeWriter outputBuffer)
             {
-                var writer = new WritableBufferWriter(outputBuffer);
+                var writer = OutputWriter.Create(outputBuffer);
 
                 // HTTP 1.1 OK
                 writer.Write(_http11OK);
@@ -216,9 +226,9 @@ namespace PlatformLevelTechempower
                 writer.Write(_crlf);
             }
 
-            private static void Json(ref WritableBuffer outputBuffer)
+            private static void Json(PipeWriter outputBuffer)
             {
-                var writer = new WritableBufferWriter(outputBuffer);
+                var writer = OutputWriter.Create(outputBuffer);
 
                 // HTTP 1.1 OK
                 writer.Write(_http11OK);
@@ -245,12 +255,12 @@ namespace PlatformLevelTechempower
                 writer.Write(_crlf);
 
                 // Body
-                writer.Write(jsonPayload.Array, jsonPayload.Offset, jsonPayload.Count);
+                writer.Write(new Span<byte>(jsonPayload.Array, jsonPayload.Offset, jsonPayload.Count));
             }
 
-            private static void PlainText(ref WritableBuffer outputBuffer)
+            private static void PlainText(PipeWriter outputBuffer)
             {
-                var writer = new WritableBufferWriter(outputBuffer);
+                var writer = OutputWriter.Create(outputBuffer);
                 // HTTP 1.1 OK
                 writer.Write(_http11OK);
 
@@ -277,7 +287,7 @@ namespace PlatformLevelTechempower
                 writer.Write(_plainTextBody);
             }
 
-            private void ParseHttpRequest(ReadableBuffer inputBuffer, out ReadCursor consumed, out ReadCursor examined)
+            private void ParseHttpRequest(ReadOnlyBuffer<byte> inputBuffer, out SequencePosition consumed, out SequencePosition examined)
             {
                 consumed = inputBuffer.Start;
                 examined = inputBuffer.End;

@@ -1,4 +1,7 @@
 ﻿using System;
+using System.Buffers;
+using System.Collections;
+using System.Collections.Sequences;
 using System.IO.Pipelines;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Hosting.Internal;
@@ -70,9 +73,9 @@ namespace PlatformLevelTechempower
                 _handler = new THandlerInner();
             }
 
-            public IPipeReader Input { get; set; }
+            public PipeReader Input { get; set; }
 
-            public IPipeWriter Output { get; set; }
+            public PipeWriter Output { get; set; }
 
             public async Task ExecuteAsync()
             {
@@ -102,7 +105,7 @@ namespace PlatformLevelTechempower
 
                             if (_state == State.Body)
                             {
-                                var outputBuffer = Output.Alloc();
+                                var outputBuffer = Output;
 
                                 _handler.Output = outputBuffer;
 
@@ -115,7 +118,7 @@ namespace PlatformLevelTechempower
                         }
                         finally
                         {
-                            Input.Advance(consumed, examined);
+                            Input.AdvanceTo(consumed, examined);
                         }
                     }
 
@@ -131,7 +134,7 @@ namespace PlatformLevelTechempower
                 }
             }
 
-            private void ParseHttpRequest(ReadableBuffer inputBuffer, out ReadCursor consumed, out ReadCursor examined)
+            private void ParseHttpRequest(ReadOnlyBuffer<byte> inputBuffer, out SequencePosition consumed, out SequencePosition examined)
             {
                 consumed = inputBuffer.Start;
                 examined = inputBuffer.End;
@@ -236,7 +239,7 @@ namespace PlatformLevelTechempower
 
         public bool KeepAlive { get; set; }
 
-        internal WritableBuffer Output { get; set; }
+        internal PipeWriter Output { get; set; }
 
         internal void HandleStartLine(HttpMethod method, HttpVersion version, Span<byte> target, Span<byte> path, Span<byte> query, Span<byte> customMethod, bool pathEncoded)
         {
@@ -305,7 +308,7 @@ namespace PlatformLevelTechempower
             WriteHeader(_headerContentLength, (ulong)body.Count);
 
             Output.Write(_crlf);
-            Output.Write(body.Array, body.Offset, body.Count);
+            Output.Write(new Span<byte>(body.Array, body.Offset, body.Count));
         }
 
         public void NotFound()
@@ -321,7 +324,7 @@ namespace PlatformLevelTechempower
         public void WriteHeader(AsciiString name, ulong value)
         {
             Output.Write(name);
-            var output = new WritableBufferWriter(Output);
+            var output = OutputWriter.Create(Output);
             Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http.PipelineExtensions.WriteNumeric(ref output, value);
             Output.Write(_crlf);
         }
