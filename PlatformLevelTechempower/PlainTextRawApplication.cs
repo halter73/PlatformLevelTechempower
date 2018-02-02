@@ -125,9 +125,19 @@ namespace PlatformLevelTechempower
             {
                 try
                 {
+                    var pendingFlush = false;
+
                     while (true)
                     {
-                        var result = await Input.ReadAsync();
+                        var awaiter = Input.ReadAsync();
+
+                        if (!awaiter.IsCompleted && pendingFlush)
+                        {
+                            await Output.FlushAsync();
+                            pendingFlush = false;
+                        }
+
+                        var result = await awaiter;
                         var inputBuffer = result.Buffer;
                         var consumed = inputBuffer.Start;
                         var examined = inputBuffer.End;
@@ -160,7 +170,8 @@ namespace PlatformLevelTechempower
                                     Default(outputBuffer);
                                 }
 
-                                await outputBuffer.FlushAsync();
+                                //await outputBuffer.FlushAsync();
+                                pendingFlush = true;
 
                                 _path = null;
 
