@@ -36,6 +36,16 @@ namespace PlatformLevelTechempower
 
         public async Task RunAsync(ITransportFactory transportFactory, IEndPointInformation endPointInformation, ApplicationLifetime lifetime)
         {
+            switch (transportFactory)
+            {
+                case LibuvTransportFactory _:
+                    _appScheduler = PipeScheduler.ThreadPool;
+                    break;
+                case SocketTransportFactory _:
+                    _appScheduler = PipeScheduler.Inline;
+                    break;
+            }
+
             Console.CancelKeyPress += (sender, e) =>
             {
                 lifetime.StopApplication();
@@ -57,11 +67,9 @@ namespace PlatformLevelTechempower
             {
                 case LibuvTransportFactory _:
                     //Console.WriteLine("ReadCount: {0}, WriteCount: {1}", LibuvTransportFactory.ReadCount, LibuvTransportFactory.WriteCount);
-                    _appScheduler = PipeScheduler.ThreadPool;
                     break;
                 case SocketTransportFactory _:
                     //Console.WriteLine("ReadCount: {0}, WriteCount: {1}", SocketTransportFactory.ReadCount, SocketTransportFactory.WriteCount);
-                    _appScheduler = PipeScheduler.Inline;
                     break;
             }
 
